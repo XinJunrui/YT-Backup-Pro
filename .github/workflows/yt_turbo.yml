@@ -1,5 +1,8 @@
 name: YT-DLP 10-Way Hyper Sync (AV1 1080p)
 
+# 透過自定義 run-name 讓它不顯示預設的 #編號
+run-name: "批量同步任務: ${{ github.ref_name }} (自動分流中)"
+
 on:
   schedule:
     - cron: '0 16 * * *'
@@ -20,7 +23,7 @@ jobs:
       - name: Pre-Clean Old Data
         run: |
           rm -rf downloads/
-          echo "清理完畢"
+          echo "舊資料已清理"
 
       - name: Install Tools
         run: |
@@ -28,6 +31,8 @@ jobs:
           pip install yt-dlp
 
       - name: Hyper-Parallel Download
+        # 加入 continue-on-error 確保即便有 ERROR 也不會變紅叉叉
+        continue-on-error: true 
         run: |
           URL1="https://m.youtube.com/watch?v=kp2dzkEyT7E&list=PLyaLJzy1xpYHlIUMV4varcsiuTKb0QFkq"
           URL2="https://m.youtube.com/watch?v=W5_fCNyRYjo&list=PLyaLJzy1xpYHMhVpJPCFS_-Lcb8GPh7r-"
@@ -36,6 +41,7 @@ jobs:
           START=$(( ${{ matrix.group }} * 100 + 1 ))
           END=$(( (${{ matrix.group }} + 1) * 100 ))
           
+          # 執行下載並導向日誌
           yt-dlp -f "bestvideo[height<=1080][vcodec^=av01]+bestaudio[acodec^=opus]/best[height<=1080]" \
           --merge-output-format webm \
           --ignore-errors \
@@ -43,11 +49,13 @@ jobs:
           -o "$BASE_DIR/%(playlist_title)s/%(title)s.%(ext)s" \
           "$URL1" "$URL2" > output.log 2>&1
 
+          # 產生失敗報告
           REPORT_PATH="$BASE_DIR/failed_report_part_${{ matrix.group }}.txt"
           echo "=== 機器 ${{ matrix.group }} 失敗清單 ===" > "$REPORT_PATH"
-          grep "ERROR:" output.log >> "$REPORT_PATH" || echo "全部成功" >> "$REPORT_PATH"
+          grep "ERROR:" output.log >> "$REPORT_PATH" || echo "本區段全部成功" >> "$REPORT_PATH"
 
       - name: Upload Artifacts
+        if: always() # 確保即便下載有錯誤，也會上傳已成功的影片
         uses: actions/upload-artifact@v4
         with:
           name: "Video-Package-Part-${{ matrix.group }}"
