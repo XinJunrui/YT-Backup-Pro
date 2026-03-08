@@ -1,7 +1,7 @@
-name: YT-DLP 10-Way Hyper Sync (AV1 1080p)
+name: YT-DLP 10-Way Hyper Sync
 
-# 透過自定義 run-name 讓它不顯示預設的 #編號
-run-name: "批量同步任務: ${{ github.ref_name }} (自動分流中)"
+# 1. 隱藏預設編號：改用自定義名稱顯示在 Actions 清單中
+run-name: "YT全速同步任務 - 分流運作中"
 
 on:
   schedule:
@@ -12,7 +12,7 @@ jobs:
   hyper-download:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: false # 確保其中一台機器失敗時，其他 9 台繼續載完
       matrix:
         group: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
@@ -22,8 +22,10 @@ jobs:
 
       - name: Pre-Clean Old Data
         run: |
+          # 執行時先刪除舊的資料夾與日誌，確保空間乾淨
           rm -rf downloads/
-          echo "舊資料已清理"
+          rm -f output.log
+          echo "舊數據清理完成，準備從頭開始..."
 
       - name: Install Tools
         run: |
@@ -31,17 +33,19 @@ jobs:
           pip install yt-dlp
 
       - name: Hyper-Parallel Download
-        # 加入 continue-on-error 確保即便有 ERROR 也不會變紅叉叉
+        # 關鍵：即使遇到影片無法下載，也要繼續執行後續的上傳與報告產出
         continue-on-error: true 
         run: |
           URL1="https://m.youtube.com/watch?v=kp2dzkEyT7E&list=PLyaLJzy1xpYHlIUMV4varcsiuTKb0QFkq"
           URL2="https://m.youtube.com/watch?v=W5_fCNyRYjo&list=PLyaLJzy1xpYHMhVpJPCFS_-Lcb8GPh7r-"
           BASE_DIR="downloads/Part_${{ matrix.group }}"
           mkdir -p "$BASE_DIR"
+          
+          # 自動分流：每台負責 100 部
           START=$(( ${{ matrix.group }} * 100 + 1 ))
           END=$(( (${{ matrix.group }} + 1) * 100 ))
           
-          # 執行下載並導向日誌
+          # 執行下載：AV1 1080p + 自動分類資料夾
           yt-dlp -f "bestvideo[height<=1080][vcodec^=av01]+bestaudio[acodec^=opus]/best[height<=1080]" \
           --merge-output-format webm \
           --ignore-errors \
@@ -49,15 +53,16 @@ jobs:
           -o "$BASE_DIR/%(playlist_title)s/%(title)s.%(ext)s" \
           "$URL1" "$URL2" > output.log 2>&1
 
-          # 產生失敗報告
+          # 產生最重要的錯誤報告
           REPORT_PATH="$BASE_DIR/failed_report_part_${{ matrix.group }}.txt"
-          echo "=== 機器 ${{ matrix.group }} 失敗清單 ===" > "$REPORT_PATH"
-          grep "ERROR:" output.log >> "$REPORT_PATH" || echo "本區段全部成功" >> "$REPORT_PATH"
+          echo "=== 機器 ${{ matrix.group }} 下載異常清單 ===" > "$REPORT_PATH"
+          grep "ERROR:" output.log >> "$REPORT_PATH" || echo "本區段下載完全成功！" >> "$REPORT_PATH"
 
       - name: Upload Artifacts
-        if: always() # 確保即便下載有錯誤，也會上傳已成功的影片
+        # 無論下載是否成功，都強制執行上傳步驟，確保你能拿到已載完的影片與報告
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: "Video-Package-Part-${{ matrix.group }}"
+          name: "Video-Batch-Part-${{ matrix.group }}"
           path: "downloads/Part_${{ matrix.group }}/"
           retention-days: 7
